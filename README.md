@@ -7,9 +7,11 @@ where they should be trusted, and building evidence-backed routing knowledge for
 multi-model agent systems.
 
 The replay-bootstrap loop is shipped: load known-outcome tasks, redact secrets,
-replay through other models, floor-test the judge, and render model cards from
-observations. The separate `llm-bench` project remains the objective-signal
-layer.
+replay through models, floor-test the judge, and render model cards from
+observations.
+
+It can import external evidence, including benchmark results, but it does not
+depend on any one benchmark project.
 
 The question is not "which model is best?"
 
@@ -27,11 +29,11 @@ Python, Bedrock, Ollama, Claude CLI, OpenAI-compatible providers.
 
 ## Scope
 
-- Import or compare against objective signals from `llm-bench`.
 - Replay bootstrap for known-outcome tasks.
 - Fail-closed redaction before third-party model calls.
 - Judge floor tests before any model card is trusted.
 - Evidence-backed model cards from observations.
+- Optional import/export paths for benchmark or routing systems.
 
 ## Quick Start
 
@@ -41,12 +43,6 @@ Install locally:
 git clone https://github.com/ariaxhan/model-familiarity-engine
 cd model-familiarity-engine
 pip install -e ".[dev]"
-```
-
-Run the benchmark substrate separately:
-
-```bash
-llm-bench run phi4:14b --full --details
 ```
 
 Run the replay bootstrap:
@@ -67,8 +63,8 @@ past work -> redacted known-outcome tasks -> replay through models
          -> floor-tested judge -> observations -> model cards
 ```
 
-The benchmark layer asks whether a model can pass practical workflow tests. The
-familiarity layer asks what work a model has earned in an agent system: planner,
+Benchmarks can help, but they are not the center of the engine. The familiarity
+layer asks what work a model has earned in an agent system: planner,
 implementer, reviewer, debugger, summarizer, critic, or "needs human review."
 
 ## Public Data Boundary

@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "model-familiarity-engine"
 version = "0.1.0"
-description = "Build evidence-backed model cards from benchmark and replay observations"
+description = "Build evidence-backed model cards from replayed known-outcome tasks"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "Aria Han", email = "aria@ariaxhan.com" },
 ]
-keywords = ["llm", "benchmark", "model-routing", "model-cards", "local-ai"]
+keywords = ["llm", "model-routing", "model-cards", "replay", "local-ai"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
