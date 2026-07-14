@@ -6,6 +6,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
+class SafetyLimitError(RuntimeError):
+    """A live-run safety boundary was crossed and the entire run must stop."""
+
+
 @dataclass
 class LLMResponse:
     content: str
@@ -36,6 +40,17 @@ class BaseProvider(ABC):
         temperature: float = 0.0,
     ) -> LLMResponse:
         ...
+
+    async def converse(
+        self,
+        model: str,
+        system_prompt: str,
+        messages: list[dict],
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+    ) -> LLMResponse:
+        """Multi-turn completion; providers without it fail loudly."""
+        raise NotImplementedError(f"{self.name} provider does not support multi-turn converse")
 
     @abstractmethod
     async def list_models(self) -> list[str]:

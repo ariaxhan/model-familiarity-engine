@@ -30,9 +30,9 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from importlib.resources import files
 
-_CORPUS_PATH = Path(__file__).resolve().parents[2] / "data" / "sample_tasks.json"
+_CORPUS_PATH = files("model_familiarity").joinpath("data", "sample_tasks.json")
 
 
 @dataclass

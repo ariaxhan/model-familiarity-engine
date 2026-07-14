@@ -23,16 +23,30 @@ class OpenAICompatProvider(BaseProvider):
         max_tokens: int = 1024,
         temperature: float = 0.0,
     ) -> LLMResponse:
+        messages = [
+            {"role": "system", "text": system_prompt},
+            {"role": "user", "text": user_prompt},
+        ]
+        return await self.converse(model, system_prompt, messages, max_tokens, temperature)
+
+    async def converse(
+        self,
+        model: str,
+        system_prompt: str,
+        messages: list[dict],
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+    ) -> LLMResponse:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         payload = {
             "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": ([{"role": "system", "content": system_prompt}]
+                         if system_prompt else [])
+            + [{"role": item["role"], "content": item.get("text", item.get("content", ""))}
+               for item in messages if item["role"] != "system"],
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": False,

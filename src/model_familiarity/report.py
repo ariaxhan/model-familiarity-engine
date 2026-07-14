@@ -31,8 +31,6 @@ import sys
 from pathlib import Path
 from statistics import median
 
-OUT_DIR = Path(__file__).resolve().parents[2] / "results" / "familiarity"
-
 _TASK_TITLE = {
     "ios_zoom": "iOS WKWebView auto-zoom (mobile-web)",
     "cover_crop": "aspect-ratio crop (CSS layout)",
@@ -41,9 +39,9 @@ _TASK_TITLE = {
 
 
 # --------------------------------------------------------------------------- io
-def _load() -> tuple[list[dict], list[dict]]:
-    obs = json.loads((OUT_DIR / "observations.json").read_text())
-    reps = json.loads((OUT_DIR / "replays.json").read_text())
+def _load(out_dir: Path) -> tuple[list[dict], list[dict]]:
+    obs = json.loads((out_dir / "observations.json").read_text())
+    reps = json.loads((out_dir / "replays.json").read_text())
     return obs, reps
 
 
@@ -391,9 +389,11 @@ def render_report(selected: list[str], obs, reps, date) -> str:
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None):
+def main(argv: list[str] | None = None, out_dir: str | Path | None = None):
     argv = argv if argv is not None else sys.argv[1:]
-    obs, reps = _load()
+    output = Path(out_dir or (Path.cwd() / "model-familiarity-results")).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    obs, reps = _load(output)
     all_models = sorted({x["model"] for x in obs})
     selected = argv or all_models
     toks_all = [x["output_tokens"] for x in reps if x.get("output_tokens")]
@@ -402,10 +402,10 @@ def main(argv: list[str] | None = None):
 
     for m in selected:
         md = render_detailed_card(m, obs, reps, roster_med, date)
-        (OUT_DIR / f"card-{_safe(m)}.md").write_text(md)
+        (output / f"card-{_safe(m)}.md").write_text(md)
     report = render_report(selected, obs, reps, date)
-    (OUT_DIR / "detailed-report.md").write_text(report)
-    print(f"rendered {len(selected)} detailed cards + detailed-report.md to {OUT_DIR}")
+    (output / "detailed-report.md").write_text(report)
+    print(f"rendered {len(selected)} detailed cards + detailed-report.md to {output}")
     print("selected:", ", ".join(selected))
 
 

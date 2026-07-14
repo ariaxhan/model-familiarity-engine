@@ -1,21 +1,12 @@
 # Vision
 
-Model choice should be based on earned responsibility, not vibes or a single
-leaderboard score.
+Model selection should be based on earned, versioned evidence rather than provider reputation
+or a single benchmark score.
 
-The engine accumulates observations about how models behave in real workflows:
-whether they solve, recover, ask for evidence, overclaim, get cheaper with
-guidance, or need supervision.
+Model Familiarity Engine treats evaluation as an instrument problem first. It measures whether
+a model converges, recovers, seeks evidence, holds state, and avoids known traps. It also
+measures the evaluator itself: judge reliability, panel agreement, blinding leakage, challenge
+ambiguity, oracle consistency, human agreement, and provenance.
 
-The core object is an Observation:
-
-```text
-Observation = model@version + role + task + workflow + outcome + regret + evidence
-```
-
-Model cards are built from observations. Routing decisions are built from model
-cards. Trust decays when model versions change.
-
-Model Familiarity Engine is not a wrapper around a benchmark. It can ingest
-benchmark results as one evidence source, but its core loop is replay,
-redaction, judging, model cards, and routing knowledge.
+Model cards and routing decisions are downstream uses. The public core is a reproducible
+evaluation engine with fail-closed certification gates.

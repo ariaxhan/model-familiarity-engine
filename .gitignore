@@ -8,7 +8,10 @@ build/
 *.egg
 .venv/
 venv/
-.env
+.env*
+.mcp.json
+.coverage
+htmlcov/
 .pytest_cache/
 .ruff_cache/
 results/
