@@ -24,6 +24,7 @@ from model_familiarity.card import (
 from model_familiarity.floor import run_floor
 from model_familiarity.judge import DEFAULT_JUDGE_MODEL, judge
 from model_familiarity.providers import get_provider
+from model_familiarity.providers.base import SafetyLimitError
 from model_familiarity.replay import CONDITIONS, replay_task
 from model_familiarity.tasks import load_tasks
 
@@ -76,16 +77,17 @@ SUBJECT_MODELS = [
     # Writer
     "us.writer.palmyra-x5-v1:0",
 ]
-OUT_DIR = Path(__file__).resolve().parents[2] / "results" / "familiarity"
-
-
 async def run_pilot(
     subjects: list[str] | None = None,
     judge_model: str = DEFAULT_JUDGE_MODEL,
     concurrency: int = 6,
+    provider=None,
+    output_dir: str | Path | None = None,
 ):
     subjects = subjects or SUBJECT_MODELS
-    provider = get_provider("bedrock")
+    out_dir = Path(output_dir or (Path.cwd() / "model-familiarity-results")).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    provider = provider or get_provider("bedrock")
     today = datetime.date.today().isoformat()
 
     # --- HARD GATE: prove the judge before trusting any verdict ---
@@ -117,7 +119,9 @@ async def run_pilot(
                 # 12000 max_tokens gives reasoning models room (4096 left them empty).
                 rep = await replay_task(task, provider, model, condition, max_tokens=12000)
                 v = await judge(task, rep.output, provider, judge_model=judge_model)
-            except Exception as e:  # noqa: BLE001 — record + continue, never abort the sweep
+            except SafetyLimitError:
+                raise
+            except Exception as e:  # noqa: BLE001 — record + continue ordinary cell errors
                 print(f"{model:42} {task.task_id:10} {condition:7} ERROR {type(e).__name__}")
                 return ("err", model, task, condition, f"{type(e).__name__}: {e}")
             flag = "" if v.agrees_with_spine else "  ⚠ spine-disagree"
@@ -152,14 +156,13 @@ async def run_pilot(
         replays_dump.append(rep.to_dict())
         verdicts_dump.append(v.to_dict())
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    (OUT_DIR / "observations.json").write_text(
+    (out_dir / "observations.json").write_text(
         json.dumps([o.to_dict() for o in observations], indent=2)
     )
-    (OUT_DIR / "replays.json").write_text(json.dumps(replays_dump, indent=2))
-    (OUT_DIR / "verdicts.json").write_text(json.dumps(verdicts_dump, indent=2))
+    (out_dir / "replays.json").write_text(json.dumps(replays_dump, indent=2))
+    (out_dir / "verdicts.json").write_text(json.dumps(verdicts_dump, indent=2))
     if errors:
-        (OUT_DIR / "errors.json").write_text(json.dumps(errors, indent=2))
+        (out_dir / "errors.json").write_text(json.dumps(errors, indent=2))
         print(f"\n{len(errors)} cell(s) errored (recorded in errors.json):")
         for e in errors:
             print(f"  {e['model']} {e['task']}/{e['condition']}: {e['error'][:80]}")
@@ -172,19 +175,19 @@ async def run_pilot(
             continue
         card = build_card(model, observations, today)
         safe = model.replace(".", "_").replace(":", "_").replace("/", "_")
-        (OUT_DIR / f"card-{safe}.json").write_text(json.dumps(card, indent=2))
+        (out_dir / f"card-{safe}.json").write_text(json.dumps(card, indent=2))
 
     # cross-model comparison leaderboard (quick table)
     comparison = render_comparison(observations, today)
-    (OUT_DIR / "comparison.md").write_text(comparison)
+    (out_dir / "comparison.md").write_text(comparison)
     print(comparison)
 
     # detailed quote-backed cards (.md) + cross-model report, rendered from the dumps
     # we just wrote (report reads observations.json + replays.json off disk).
     from model_familiarity import report
 
-    report.main([])
-    print(f"\nwrote {len(models_with_obs)} cards + comparison + detailed report to {OUT_DIR}")
+    report.main([], out_dir=out_dir)
+    print(f"\nwrote {len(models_with_obs)} cards + comparison + detailed report to {out_dir}")
 
 
 def main():

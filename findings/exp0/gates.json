@@ -1,0 +1,116 @@
+{
+  "protocol_hash": "9a730f21729df095",
+  "rubric": "lhcr-rubric-v1",
+  "certified_environment": "qwen.qwen3-235b-a22b-2507-v1:0",
+  "certified_panel": [
+    {
+      "key": "judge_a",
+      "model": "us.meta.llama3-3-70b-instruct-v1:0",
+      "family": "open",
+      "provider_key": "bedrock"
+    },
+    {
+      "key": "judge_b",
+      "model": "us.anthropic.claude-sonnet-4-6",
+      "family": "anthropic",
+      "provider_key": "bedrock"
+    },
+    {
+      "key": "judge_c",
+      "model": "gpt-5.1",
+      "family": "openai",
+      "provider_key": "openai"
+    }
+  ],
+  "binding": "retrospective",
+  "collection_time_protocol_stamp": false,
+  "source_manifest_sha256": "1d35deaa95c833f59a4a14ad4d92515ca2b5bc22c44d5d6253c58cdc5e5bc08a",
+  "source_shards": {
+    "floor.json": {
+      "sha256": "5f8551bd2878d7d7008c9adaa5b2e6515e2d4db5a8b287a927d490056f848174"
+    },
+    "verdicts.json": {
+      "sha256": "c0b3993d288ed46a1666776e629f054b59b580fd88a4cae37feeb3f67b511a26"
+    },
+    "rescore.json": {
+      "sha256": "b4506e3b187a6a2579fe471a296449d8cca28e384334a81eccf429c1818e6a17"
+    },
+    "blind.json": {
+      "sha256": "5bb68ec3ab07f6f71c90ae1db5ea592ed86ff657a11bebfe2479ebee7e5d5595"
+    },
+    "oracle-anchor.json": {
+      "sha256": "419d08cdc9d150454646b950f175f72df0e563238a2a5c20fbcc54b8ed4d94a2"
+    }
+  },
+  "verdict": "NOT CERTIFIED",
+  "caveats": [
+    "FAILED: provenance",
+    "PENDING (auxiliary): oracle false-negative rate",
+    "PENDING (auxiliary): human-anchor agreement"
+  ],
+  "gates": [
+    {
+      "gate": "oracle false-negative rate",
+      "kind": "hard",
+      "value": "",
+      "status": "PENDING",
+      "detail": "synthetic-gold diagnostic fn=0% (canonical phrasing); anchored fn_rate pending: human labels (human-calibration/scoring-sheet-filled.csv), no execution harness exists for EXECUTION_ANCHORED challenges"
+    },
+    {
+      "gate": "oracle consistency",
+      "kind": "hard",
+      "value": "0.95",
+      "status": "PASS",
+      "detail": "identical-fix accept/reject stability (thr \u22650.9)"
+    },
+    {
+      "gate": "judge individual reliability",
+      "kind": "hard",
+      "value": "min 0.92",
+      "status": "PASS",
+      "detail": "judge_a 1.00 \u00b7 judge_b 0.97 \u00b7 judge_c 0.92 (floor 0.71, target 0.8)"
+    },
+    {
+      "gate": "panel inter-judge agreement",
+      "kind": "hard",
+      "value": "0.74",
+      "status": "PASS",
+      "detail": "mean reached pair-agreement (thr \u22650.67). n=339 full cells \u00b7 reached-rate[judge_a=76% judge_b=42% judge_c=50%] \u00b7 pair-agree[judge_a|judge_b=0.65 judge_a|judge_c=0.73 judge_b|judge_c=0.84]"
+    },
+    {
+      "gate": "human-anchor agreement",
+      "kind": "hard",
+      "value": "",
+      "status": "PENDING",
+      "detail": "awaiting human labels (export-human \u2192 reviewer fills scoring-sheet-filled.csv)"
+    },
+    {
+      "gate": "blind leakage (provider-guess)",
+      "kind": "hard",
+      "value": "max 40% vs 25% chance",
+      "status": "PASS",
+      "detail": "judge_a 17% \u00b7 judge_b 40% \u00b7 judge_c 37% (fail if >chance+15pp)"
+    },
+    {
+      "gate": "challenge ambiguity",
+      "kind": "hard",
+      "value": "span 25\u201387%",
+      "status": "PASS",
+      "detail": "no challenge saturates"
+    },
+    {
+      "gate": "floor-gate",
+      "kind": "hard",
+      "value": "pass",
+      "status": "PASS",
+      "detail": "env=qwen.qwen3-235b-a22b-2507-v1:0 + 3 judges on 8 challenges"
+    },
+    {
+      "gate": "provenance",
+      "kind": "hard",
+      "value": "retrospective only",
+      "status": "FAIL",
+      "detail": "5 source shard hashes verified for byte custody, but no collection-time protocol/rubric stamp exists"
+    }
+  ]
+}

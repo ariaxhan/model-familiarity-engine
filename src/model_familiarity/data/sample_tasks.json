@@ -1,0 +1,26 @@
+{
+  "ios_zoom": {
+    "prompt": "Bug report - mobile web app: on iPhone, tapping an input field zooms the whole page and the user cannot get back to the original scale. The viewport is width=device-width, initial-scale=1.0. The input inherits a 13px font. What is the root cause and fix?",
+    "claude_reference": "iOS Safari and WKWebView auto-zoom focused inputs whose computed font size is under 16px. The fix is to set the input font-size to at least 16px. Avoid user-scalable=no because it disables page zoom for users who need it.",
+    "repo_ref": {
+      "repo": "synthetic-mobile-web",
+      "kind": "sample-known-outcome-task"
+    }
+  },
+  "cover_crop": {
+    "prompt": "Bug report - photo board: a 9:16 image is rendered inside a card with aspect-ratio: 3 / 4 and the img uses width: 100%, height: 100%, object-fit: cover. The top and bottom of the image are cropped. Why, and what is the fix?",
+    "claude_reference": "The card and image aspect ratios do not match. object-fit: cover fills the 3:4 box, so the taller 9:16 image is cropped vertically. Match the card aspect ratio to 9:16 or use a different fit mode depending on the intended design.",
+    "repo_ref": {
+      "repo": "synthetic-layout",
+      "kind": "sample-known-outcome-task"
+    }
+  },
+  "annual_price": {
+    "prompt": "Bug report - subscription UI: the annual plan is $79.99/year, but the per-month line shows $79.99/mo. The code assigns the whole-period formatted price string to pricePerMonth. Where is the bug and what is the fix?",
+    "claude_reference": "The formatted annual price is the whole-period price, not a monthly value. pricePerMonth must be computed from the annual numeric price divided by 12 and formatted in the same currency.",
+    "repo_ref": {
+      "repo": "synthetic-payments",
+      "kind": "sample-known-outcome-task"
+    }
+  }
+}

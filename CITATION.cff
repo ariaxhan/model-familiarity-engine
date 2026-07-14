@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use Model Familiarity Engine, please cite this software."
+title: "Model Familiarity Engine"
+type: software
+version: 0.2.0
+date-released: 2026-07-14
+license: MIT
+authors:
+  - family-names: Han
+    given-names: Aria
+repository-code: "https://github.com/ariaxhan/model-familiarity-engine"
+url: "https://github.com/ariaxhan/model-familiarity-engine"
+keywords:
+  - language-model evaluation
+  - model behavior
+  - conversational replay
+  - instrument validation

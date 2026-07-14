@@ -58,8 +58,8 @@ SECRET_SAMPLES = [
     ),
     ("bearer", "Authorization: " + j("Bearer ", "abcdefghijklmnopqrstuvwxyz12"), "bearer_token"),
     ("assigned", 'password = "' + j("hunter2hunter2") + '"', "assigned_secret"),
-    ("email", "contact " + j("ariaxhan", "@", "gmail.com") + " for access", "email"),
-    ("home", "/Users/" + j("slowember") + "/Documents/secret.txt", "home_user"),
+    ("email", "contact " + j("person", "@", "example.com") + " for access", "email"),
+    ("home", "/Users/" + j("exampleuser") + "/Documents/secret.txt", "home_user"),
 ]
 
 PRIVATE_KEY = (
@@ -99,10 +99,10 @@ def test_private_key_block_scrubbed():
 
 
 def test_home_user_redacts_username_keeps_path_shape():
-    redacted, _ = redact("/Users/" + j("slowember") + "/Documents/Vaults/file.py")
-    assert "slowember" not in redacted
+    redacted, _ = redact("/Users/" + j("exampleuser") + "/Documents/Example/file.py")
+    assert "exampleuser" not in redacted
     # path structure preserved so the task is still legible
-    assert "/Documents/Vaults/file.py" in redacted
+    assert "/Documents/Example/file.py" in redacted
 
 
 def test_clean_text_untouched():
@@ -116,7 +116,7 @@ def test_clean_text_untouched():
 def test_redact_is_idempotent():
     raw = (
         "OPENAI=" + j("sk-", "proj-abcdefghijklmnopqrstuvwxyz1234")
-        + " and /Users/" + j("slowember") + "/x"
+        + " and /Users/" + j("exampleuser") + "/x"
     )
     once, _ = redact(raw)
     twice, _ = redact(once)
@@ -128,7 +128,7 @@ def test_multiple_secrets_one_pass():
     raw = (
         "export OPENAI=" + j("sk-", "proj-abcdefghijklmnopqrstuvwxyz1234") + "\n"
         "export AWS=" + j("AKIA", "1234567890ABCDEF") + "\n"
-        "email " + j("ariaxhan", "@", "gmail.com")
+        "email " + j("person", "@", "example.com")
     )
     redacted, findings = redact(raw)
     kinds = {f.kind for f in findings}
@@ -143,13 +143,13 @@ def test_redact_obj_walks_nested_structure():
             {"text": "I'll use " + j("sk-", "proj-abcdefghijklmnopqrstuvwxyz1234")},
             {"text": "clean line"},
         ],
-        "meta": {"cwd": "/Users/" + j("slowember") + "/repo"},
+        "meta": {"cwd": "/Users/" + j("exampleuser") + "/repo"},
     }
     cleaned = redact_obj(tup)
     # fail-closed gate over the whole structure must now pass
     assert_obj_clean(cleaned)
     assert "1234567890ABCDEF" not in str(cleaned)
-    assert "slowember" not in str(cleaned)
+    assert "exampleuser" not in str(cleaned)
 
 
 def test_assert_obj_clean_raises_on_dirty_structure():

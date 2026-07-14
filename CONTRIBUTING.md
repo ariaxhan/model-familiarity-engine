@@ -1,24 +1,22 @@
 # Contributing
 
-Model Familiarity Engine is the replay/model-card layer. It is not the benchmark
-suite; benchmark tests and benchmark CLI behavior belong in `llm-bench`.
+Contributions should strengthen the evaluation instrument or its reproducibility: challenge
+schemas, redaction, judge validation, calibration gates, offline study planning, provider
+adapters, aggregate reporting, or tests.
 
-Good contributions here:
+Do not commit private work logs, raw transcripts, reasoning traces, calibration answer keys,
+credentials, cloud account details, local paths, internal handoffs, or unreviewed model ranks.
+New public challenges must be genericized and have a known outcome, registered trap, and
+deterministic calibration spine.
 
-- replay task ingestion
-- redaction checks
-- judge floor probes
-- model-card rendering
-- routing/export formats
-- provider support needed by replay runs
-
-Keep public samples synthetic or intentionally released. Do not commit private work
-logs, raw transcripts, credentials, local cloud account details, or agent handoff
-notes.
-
-Before opening a PR:
+Before opening a pull request:
 
 ```bash
+python -m pip install -e ".[dev]"
 pytest
 ruff check .
+python -m build
 ```
+
+Changes to a protocol-bearing field must change `protocol_hash()`. Add a regression test when
+introducing a new field or evaluator behavior.

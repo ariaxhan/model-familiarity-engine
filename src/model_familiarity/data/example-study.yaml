@@ -1,0 +1,57 @@
+# Package-safe Experiment 1 study template. Generate with:
+#   model-familiarity study example
+study_id: exp1-model-behavior
+experiment: exp1
+status: draft
+
+protocol:
+  lab_docs:
+    - docs/methodology.md
+  protocol_hash: null
+  rubric_version: lhcr-rubric-v1
+
+certification:
+  require: CONDITIONALLY CERTIFIED
+  gates_file: findings/exp0/gates.json
+
+environment:
+  model: qwen.qwen3-235b-a22b-2507-v1:0
+
+judges:
+  - { key: judge_a, model: "us.meta.llama3-3-70b-instruct-v1:0", family: open, provider: bedrock }
+  - { key: judge_b, model: "us.anthropic.claude-sonnet-4-6", family: anthropic, provider: bedrock }
+  - { key: judge_c, model: "gpt-5.1", family: openai, provider: openai }
+
+subjects:
+  - us.anthropic.claude-opus-4-6-v1
+  - us.anthropic.claude-haiku-4-5-20251001-v1:0
+  - gpt-5
+  - gpt-5-mini
+  - gemini-2.5-pro
+  - gemini-2.5-flash
+  - us.deepseek.r1-v1:0
+  - moonshot.kimi-k2-thinking
+  - qwen.qwen3-coder-30b-a3b-v1:0
+  - zai.glm-4.7
+  - us.amazon.nova-2-lite-v1:0
+  - nvidia.nemotron-nano-9b-v2
+
+design:
+  k: 5
+  challenges: all
+  max_turns: 6
+
+blinding:
+  judges_blind_to_subject: true
+
+exclusions:
+  - { id: E1, rule: "cell has <2 valid judge verdicts after one rerun", action: report }
+  - { id: E2, rule: "transport-layer failure before the env closes the conversation", action: rerun }
+  - { id: E3, rule: "env or judge floor-gate failure on any challenge", action: abort }
+  - { id: E4, rule: "post hoc subject exclusion, for any reason", action: forbidden }
+  - { id: E5, rule: "judge verdict with parse_ok=false (never coerced)", action: drop }
+
+analysis:
+  primary_metrics: [solved_rate, reached_majority_rate, trap_committed_rate, turns_to_fix_median]
+  ci: bootstrap-95
+  hypotheses: [H1-behavior-not-capability, H2-trap-split, H3-solved-not-understood]

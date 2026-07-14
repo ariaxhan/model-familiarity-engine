@@ -1,0 +1,21 @@
+# INVALID: the environment model also sits on the judge panel (structural gate must fire).
+study_id: fixture-env-is-judge
+experiment: exp1
+status: draft
+certification:
+  require: CONDITIONALLY CERTIFIED
+environment:
+  model: qwen.qwen3-235b-a22b-2507-v1:0
+judges:
+  - { key: judge_a, model: "qwen.qwen3-235b-a22b-2507-v1:0", family: open, provider: bedrock }
+  - { key: judge_b, model: "us.anthropic.claude-sonnet-4-6", family: anthropic, provider: bedrock }
+  - { key: judge_c, model: "gpt-5.1", family: openai, provider: openai }
+subjects:
+  - us.deepseek.r1-v1:0
+design:
+  k: 5
+  challenges: all
+blinding:
+  judges_blind_to_subject: true
+exclusions:
+  - { id: E1, rule: "cell has <2 valid judge verdicts", action: report }
