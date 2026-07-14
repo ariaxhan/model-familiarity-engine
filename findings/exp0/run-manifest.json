@@ -1,0 +1,43 @@
+{
+  "study_id": "exp0-instrument-validation",
+  "artifact_scope": "reviewed-aggregate-only",
+  "protocol_hash": "9a730f21729df095",
+  "binding": "retrospective",
+  "collection_time_protocol_stamp": false,
+  "collection_time_protocol_hash": null,
+  "retrospective_protocol_label": "22d80b51623db452",
+  "rubric_version": "lhcr-rubric-v1",
+  "source_manifest_sha256": "1d35deaa95c833f59a4a14ad4d92515ca2b5bc22c44d5d6253c58cdc5e5bc08a",
+  "source_shards_published": false,
+  "source_shards": {
+    "floor.json": {"sha256": "5f8551bd2878d7d7008c9adaa5b2e6515e2d4db5a8b287a927d490056f848174"},
+    "verdicts.json": {"sha256": "c0b3993d288ed46a1666776e629f054b59b580fd88a4cae37feeb3f67b511a26"},
+    "rescore.json": {"sha256": "b4506e3b187a6a2579fe471a296449d8cca28e384334a81eccf429c1818e6a17"},
+    "blind.json": {"sha256": "5bb68ec3ab07f6f71c90ae1db5ea592ed86ff657a11bebfe2479ebee7e5d5595"},
+    "oracle-anchor.json": {"sha256": "419d08cdc9d150454646b950f175f72df0e563238a2a5c20fbcc54b8ed4d94a2"}
+  },
+  "source_hash_note": "Hashes prove custody of the retained shard bytes only. The raw shards were not stamped with protocol or rubric identity at collection time and are not published.",
+  "verdict": "NOT CERTIFIED",
+  "failed_gates": [
+    "provenance"
+  ],
+  "counts": {
+    "panel_records": 340,
+    "subjects_observed": 10,
+    "challenges": 8,
+    "judge_seats": 3,
+    "blinded_provider_guess_records": 100,
+    "judge_retest_rows": 36
+  },
+  "pending_auxiliary_gates": [
+    "human-anchor agreement",
+    "oracle false-negative rate"
+  ],
+  "excluded_artifacts": [
+    "raw transcripts",
+    "reasoning traces",
+    "calibration answer keys",
+    "per-model scores and rankings",
+    "private infrastructure identifiers"
+  ]
+}
