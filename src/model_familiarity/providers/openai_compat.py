@@ -8,6 +8,26 @@ import httpx
 
 from model_familiarity.providers.base import BaseProvider, LLMResponse
 
+_HARMONY_FINAL = "<|channel|>final<|message|>"
+
+
+def _extract_final_answer(content: str) -> str:
+    """Unwrap raw gpt-oss harmony channel markup if the server didn't.
+
+    Some servers (e.g. mlx_lm.server) return the raw harmony token stream as
+    content: analysis-channel reasoning first, then the final channel. If there
+    is no final channel, the model never finished answering — return empty.
+    Content without channel markup passes through untouched.
+    """
+    if _HARMONY_FINAL in content:
+        final = content.rsplit(_HARMONY_FINAL, 1)[1]
+        for stop in ("<|end|>", "<|return|>", "<|start|>"):
+            final = final.split(stop, 1)[0]
+        return final.strip()
+    if "<|channel|>" in content:
+        return ""
+    return content
+
 
 class OpenAICompatProvider(BaseProvider):
     def __init__(self, base_url: str, api_key: str = "", name: str = "openai-compat"):
@@ -60,7 +80,13 @@ class OpenAICompatProvider(BaseProvider):
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         data = resp.json()
-        content = data["choices"][0]["message"]["content"]
+        # Ported from llm-bench (2026-07-17): reasoning models can exhaust
+        # max_tokens inside the reasoning channel (server omits "content"), and
+        # some servers (mlx_lm.server) return gpt-oss's raw harmony stream as
+        # content. Missing/null content is an empty answer; harmony markup is
+        # unwrapped to the final channel.
+        content = data["choices"][0]["message"].get("content") or ""
+        content = _extract_final_answer(content)
         tokens = data.get("usage", {}).get("total_tokens", 0)
 
         return LLMResponse(
