@@ -1,3 +1,9 @@
+---
+type: note
+status: active
+created: 2026-07-14
+---
+
 # Public Bedrock evidence v1
 
 Goal: produce a reproducible, citation-ready Bedrock experiment packet and narrow model

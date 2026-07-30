@@ -62,6 +62,14 @@ TOKEN_PRICES: dict[str, tuple[float, float]] = {
 }
 VALID_DIVERGENCES = {"equivalent", "better", "worse", "novel"}
 MAX_JUDGE_RESPONSE_CHARS = 16_384
+MAX_REPAIR_ATTEMPTS = 2
+MAX_REPAIR_BUDGET_USD = 1.0
+REPAIR_POLICY_ID = "contradiction-consistency-v1"
+REPAIR_REMINDER = (
+    "CONSISTENCY REPAIR: reached=false requires divergence=worse; reached=true requires "
+    "divergence=equivalent, better, or novel. Re-adjudicate independently under the original "
+    "rubric and return exactly one schema-valid JSON object."
+)
 
 
 class StrictVerdictError(ValueError):
@@ -85,6 +93,17 @@ class _CaptureProvider:
     async def complete(self, *args: Any, **kwargs: Any) -> Any:
         self.response = await self.provider.complete(*args, **kwargs)
         return self.response
+
+
+class _ConsistencyRepairProvider:
+    """Append the one fixed logical-invariant reminder to every repair judgment."""
+
+    def __init__(self, provider: Any):
+        self.provider = provider
+
+    async def complete(self, *args: Any, **kwargs: Any) -> Any:
+        kwargs["user_prompt"] = f"{kwargs['user_prompt']}\n\n{REPAIR_REMINDER}"
+        return await self.provider.complete(*args, **kwargs)
 
 
 def _normalized_judge_usage(response: Any) -> dict[str, Any]:
@@ -149,6 +168,16 @@ class Plan:
     max_output_tokens: int
     projected_max_cost_usd: float
     budget_usd: float
+
+
+@dataclass(frozen=True)
+class VerifiedPacket:
+    path: Path
+    manifest: dict[str, Any]
+    summary: dict[str, Any]
+    records: tuple[dict[str, Any], ...]
+    plan: Plan
+    manifest_sha256: str
 
 
 def _price(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -382,14 +411,21 @@ def _aggregate_cell(
     ]
     subject_input = sum(record.get("input_tokens") or 0 for record in complete)
     subject_output = sum(record.get("output_tokens") or 0 for record in complete)
-    judge_input = sum(record.get("judge_input_tokens") or 0 for record in complete)
-    judge_output = sum(record.get("judge_output_tokens") or 0 for record in complete)
+    judge_input = sum(
+        record.get("adjudication_judge_input_tokens", record.get("judge_input_tokens")) or 0
+        for record in complete
+    )
+    judge_output = sum(
+        record.get("adjudication_judge_output_tokens", record.get("judge_output_tokens")) or 0
+        for record in complete
+    )
     estimated_cost = sum(
         _price(record["model"], record.get("input_tokens") or 0, record.get("output_tokens") or 0)
         + _price(
             JUDGE_MODEL,
-            record.get("judge_input_tokens") or 0,
-            record.get("judge_output_tokens") or 0,
+            record.get("adjudication_judge_input_tokens", record.get("judge_input_tokens")) or 0,
+            record.get("adjudication_judge_output_tokens", record.get("judge_output_tokens"))
+            or 0,
         )
         for record in complete
     )
@@ -527,6 +563,19 @@ def render_model_card(model: str, plan: Plan, summary: dict[str, Any], run_date:
         f"`{task_id}` `{digest}`"
         for task_id, digest in sorted(protocol.get("task_sha256", {}).items())
     )
+    repair = summary.get("repair")
+    provenance = summary.get("provenance", {})
+    repair_disclosure = ""
+    if repair:
+        repair_disclosure = f"""
+## Post-run verdict repair
+
+This child packet re-adjudicated only preserved contradiction errors from parent
+`{provenance.get('parent_run_id', 'unknown')}` under fixed policy `{repair['policy_id']}`.
+Eligible: {repair['eligible_count']}; repaired: {repair['repaired_count']}; exhausted:
+{repair['exhausted_count']}; added judge calls: {repair['added_judge_calls']}. Subject models were
+not rerun. Source manifest SHA-256: `{provenance.get('source_manifest_sha256', 'unknown')}`.
+"""
     return f"""# Model card: `{model}`
 
 Status: **{status}**. Snapshot date: {run_date}.
@@ -550,6 +599,8 @@ Recorded subject usage: {usage.get('subject_input_tokens', 0)} input tokens and
 {usage.get('subject_output_tokens', 0)} output tokens. Median of cell-level subject latency
 medians: {usage.get('median_of_cell_subject_latency_medians_ms')} ms. Conservative estimated
 subject-plus-judge cost from recorded token counts: USD {usage.get('estimated_cost_usd', 0):.8f}.
+
+{repair_disclosure}
 
 ## Limitations
 
@@ -581,7 +632,9 @@ def _task_hash(task: Any) -> str:
     return hashlib.sha256(_canonical_json(public_task).encode()).hexdigest()
 
 
-def _protocol_metadata(plan: Plan) -> dict[str, Any]:
+def _protocol_metadata(
+    plan: Plan, protocol_extension: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Hash every semantic/config input needed to identify this exact protocol."""
     from model_familiarity.floor import PROBES
     from model_familiarity.tasks import load_tasks
@@ -611,6 +664,7 @@ def _protocol_metadata(plan: Plan) -> dict[str, Any]:
         "judge_max_tokens": JUDGE_MAX_TOKENS,
         "subject_input_token_bound": SUBJECT_INPUT_TOKEN_BOUND,
         "judge_input_token_bound": JUDGE_INPUT_TOKEN_BOUND,
+        "extension": protocol_extension,
     }
     return {
         "protocol_sha256": hashlib.sha256(_canonical_json(payload).encode()).hexdigest(),
@@ -675,6 +729,9 @@ def write_immutable_packet(
     floor_passed: bool,
     created_at: str,
     code_revision: str,
+    repair_summary: dict[str, Any] | None = None,
+    provenance: dict[str, Any] | None = None,
+    protocol_extension: dict[str, Any] | None = None,
 ) -> Path:
     """Atomically create and verify a run directory; never overwrite a run ID."""
     safe_run_id_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
@@ -696,7 +753,11 @@ def write_immutable_packet(
         (temporary / "evidence.jsonl").write_text(evidence_text, encoding="utf-8")
         persisted_records = [json.loads(line) for line in evidence_text.splitlines() if line]
         summary = aggregate_records(persisted_records, plan, floor_passed)
-        summary["protocol"] = _protocol_metadata(plan)
+        summary["protocol"] = _protocol_metadata(plan, protocol_extension)
+        if repair_summary is not None:
+            summary["repair"] = repair_summary
+        if provenance is not None:
+            summary["provenance"] = provenance
         (temporary / "summary.json").write_text(_canonical_json(summary), encoding="utf-8")
         _write_cards(temporary / "model-cards", plan, summary, created_at[:10])
 
@@ -719,6 +780,10 @@ def write_immutable_packet(
             "files": file_entries,
             "checksums_file": "checksums.sha256",
         }
+        if repair_summary is not None:
+            manifest["repair"] = repair_summary
+        if provenance is not None:
+            manifest["provenance"] = provenance
         assert_obj_clean(manifest)
         (temporary / "manifest.json").write_text(_canonical_json(manifest), encoding="utf-8")
 
@@ -734,6 +799,329 @@ def write_immutable_packet(
         _remove_temporary_packet(temporary)
         raise
     return final
+
+
+def _plan_from_manifest(manifest: dict[str, Any]) -> Plan:
+    raw = dict(manifest.get("plan") or {})
+    required = set(Plan.__dataclass_fields__)
+    if set(raw) != required:
+        raise ValueError("packet plan schema mismatch")
+    raw["models"] = tuple(raw["models"])
+    raw["task_ids"] = tuple(raw["task_ids"])
+    raw["conditions"] = tuple(raw["conditions"])
+    return Plan(**raw)
+
+
+def verify_immutable_packet(packet: Path) -> VerifiedPacket:
+    """Fail closed on packet checksums, JSONL counts, redaction, and manifest tie-out."""
+    from model_familiarity.redact import assert_obj_clean
+    from model_familiarity.tasks import get_task
+
+    packet = Path(packet)
+    try:
+        manifest = json.loads((packet / "manifest.json").read_text(encoding="utf-8"))
+        summary = json.loads((packet / "summary.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("packet manifest or summary is unreadable") from error
+    entries = manifest.get("files")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("packet manifest has no checksum entries")
+    expected_checksum_lines: list[str] = []
+    seen_paths: set[str] = set()
+    for entry in entries:
+        relative = entry.get("path")
+        if (
+            not isinstance(relative, str)
+            or relative in seen_paths
+            or Path(relative).is_absolute()
+            or ".." in Path(relative).parts
+        ):
+            raise ValueError("packet checksum path is invalid")
+        seen_paths.add(relative)
+        target = packet / relative
+        if not target.is_file() or sha256_file(target) != entry.get("sha256"):
+            raise ValueError(f"packet checksum mismatch: {relative}")
+        if target.stat().st_size != entry.get("bytes"):
+            raise ValueError(f"packet byte count mismatch: {relative}")
+        expected_checksum_lines.append(f"{entry['sha256']}  {relative}\n")
+    if manifest.get("checksums_file") != "checksums.sha256":
+        raise ValueError("packet checksum receipt path is invalid")
+    try:
+        checksum_text = (packet / "checksums.sha256").read_text(encoding="utf-8")
+    except (KeyError, OSError) as error:
+        raise ValueError("packet checksum receipt is unreadable") from error
+    if checksum_text != "".join(expected_checksum_lines):
+        raise ValueError("packet checksum receipt does not match manifest")
+
+    try:
+        records = tuple(
+            json.loads(line)
+            for line in (packet / "evidence.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("packet evidence JSONL is unreadable") from error
+    assert_obj_clean(records)
+    attempt_ids = [record.get("attempt_id") for record in records]
+    if any(not isinstance(value, str) for value in attempt_ids) or len(set(attempt_ids)) != len(
+        attempt_ids
+    ):
+        raise ValueError("packet evidence attempt IDs are invalid or duplicated")
+    plan = _plan_from_manifest(manifest)
+    subject = [record for record in records if record.get("phase") == "subject"]
+    floor = [record for record in records if record.get("phase") == "floor"]
+    completed = sum(
+        record.get("status") == "complete" and type(record.get("reached")) is bool
+        for record in subject
+    )
+    actual_tie_out = {
+        "record_count": len(records),
+        "floor_attempts": len(floor),
+        "subject_attempts": len(subject),
+        "expected_subject_attempts": plan.subject_calls,
+        "completed_subject_attempts": completed,
+        "missing_subject_attempts": max(0, plan.subject_calls - completed),
+    }
+    if manifest.get("tie_out") != actual_tie_out or summary.get("tie_out") != actual_tie_out:
+        raise ValueError("packet manifest/evidence tie-out mismatch")
+    if manifest.get("publishable") != summary.get("publishable"):
+        raise ValueError("packet publication status mismatch")
+    for record in records:
+        if _eligible_for_repair(record):
+            try:
+                task = get_task(record["task_id"])
+            except (KeyError, TypeError) as error:
+                raise ValueError("eligible repair record has an unknown task") from error
+            if record.get("task_sha256") != _task_hash(task):
+                raise ValueError("eligible repair record task hash mismatch")
+    return VerifiedPacket(
+        path=packet,
+        manifest=manifest,
+        summary=summary,
+        records=records,
+        plan=plan,
+        manifest_sha256=sha256_file(packet / "manifest.json"),
+    )
+
+
+def _eligible_for_repair(record: dict[str, Any]) -> bool:
+    return (
+        record.get("phase") == "subject"
+        and record.get("status") == "error"
+        and record.get("error_kind") == "strict_verdict_error/contradiction"
+        and isinstance(record.get("output"), str)
+        and bool(record["output"].strip())
+    )
+
+
+def _repair_preflight(verified: VerifiedPacket, budget_usd: float) -> dict[str, Any]:
+    if not 0 < budget_usd <= MAX_REPAIR_BUDGET_USD:
+        raise ValueError(f"repair budget must be positive and <= USD {MAX_REPAIR_BUDGET_USD:.2f}")
+    eligible_count = sum(_eligible_for_repair(record) for record in verified.records)
+    max_calls = eligible_count * MAX_REPAIR_ATTEMPTS
+    input_tokens = max_calls * JUDGE_INPUT_TOKEN_BOUND
+    output_tokens = max_calls * JUDGE_MAX_TOKENS
+    projected = round(_price(JUDGE_MODEL, input_tokens, output_tokens), 6)
+    if projected > budget_usd:
+        raise ValueError(
+            f"projected repair cost USD {projected:.6f} exceeds budget USD {budget_usd:.2f}"
+        )
+    return {
+        "eligible_count": eligible_count,
+        "max_attempts_per_record": MAX_REPAIR_ATTEMPTS,
+        "max_judge_calls": max_calls,
+        "max_input_tokens": input_tokens,
+        "max_output_tokens": output_tokens,
+        "projected_max_cost_usd": projected,
+        "budget_usd": budget_usd,
+    }
+
+
+def _repair_usage(evidence: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "input_tokens": evidence.get("judge_input_tokens") or 0,
+        "output_tokens": evidence.get("judge_output_tokens") or 0,
+        "latency_ms": evidence.get("judge_latency_ms") or 0.0,
+        "provider_reported_cost_usd": evidence.get("judge_provider_reported_cost_usd"),
+    }
+
+
+def _sum_repair_usage(attempts: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    usages = [attempt["usage"] for attempt in attempts]
+    costs = [usage["provider_reported_cost_usd"] for usage in usages]
+    return {
+        "input_tokens": sum(usage["input_tokens"] for usage in usages),
+        "output_tokens": sum(usage["output_tokens"] for usage in usages),
+        "latency_ms": round(sum(usage["latency_ms"] for usage in usages), 1),
+        "provider_reported_cost_usd": (
+            round(sum(cost for cost in costs if cost is not None), 8)
+            if any(cost is not None for cost in costs)
+            else None
+        ),
+    }
+
+
+async def _repair_record(record: dict[str, Any], provider: Any) -> dict[str, Any]:
+    from model_familiarity.tasks import get_task
+
+    task = get_task(record["task_id"])
+    attempts: list[dict[str, Any]] = []
+    accepted: dict[str, Any] | None = None
+    repair_provider = _ConsistencyRepairProvider(provider)
+    for attempt_index in range(1, MAX_REPAIR_ATTEMPTS + 1):
+        try:
+            verdict = await strict_judge(task, record["output"], repair_provider, JUDGE_MODEL)
+        except StrictVerdictError as error:
+            attempts.append(
+                {
+                    "attempt_index": attempt_index,
+                    "status": "strict_error",
+                    "error_code": error.code,
+                    "usage": _repair_usage(error.safe_evidence),
+                }
+            )
+        except Exception:  # noqa: BLE001 - never persist provider/SDK exception text
+            attempts.append(
+                {
+                    "attempt_index": attempt_index,
+                    "status": "provider_error",
+                    "usage": _repair_usage({}),
+                }
+            )
+        else:
+            attempts.append(
+                {
+                    "attempt_index": attempt_index,
+                    "status": "accepted",
+                    "usage": _repair_usage(verdict),
+                }
+            )
+            accepted = verdict
+            break
+
+    original_usage = _repair_usage(record)
+    added_usage = _sum_repair_usage(attempts)
+    repair = {
+        "policy_id": REPAIR_POLICY_ID,
+        "max_attempts": MAX_REPAIR_ATTEMPTS,
+        "attempt_count": len(attempts),
+        "attempts": attempts,
+        "original_error_kind": record["error_kind"],
+        "original_judge_usage": original_usage,
+        "added_judge_usage": added_usage,
+        "repaired": accepted is not None,
+        "exhausted": accepted is None,
+    }
+    repaired = {**record, "repair": repair}
+    repaired["adjudication_judge_input_tokens"] = (
+        original_usage["input_tokens"] + added_usage["input_tokens"]
+    )
+    repaired["adjudication_judge_output_tokens"] = (
+        original_usage["output_tokens"] + added_usage["output_tokens"]
+    )
+    repaired["adjudication_judge_latency_ms"] = round(
+        original_usage["latency_ms"] + added_usage["latency_ms"], 1
+    )
+    if accepted is None:
+        repaired["error_kind"] = "strict_verdict_error/repair_exhausted"
+        return repaired
+    repaired.pop("error_kind", None)
+    repaired.pop("error", None)
+    repaired.update(
+        {
+            "status": "complete",
+            "reached": accepted["reached"],
+            "divergence": accepted["divergence"],
+            "how": accepted["how"],
+            "spine_reached": accepted["spine_reached"],
+            "spine_detail": accepted["spine_detail"],
+            "agrees_with_spine": accepted["agrees_with_spine"],
+            "judge_called": True,
+        }
+    )
+    return repaired
+
+
+def _repair_summary(
+    records: Sequence[dict[str, Any]], preflight: dict[str, Any]
+) -> dict[str, Any]:
+    repairs = [record["repair"] for record in records if "repair" in record]
+    usage = _sum_repair_usage(
+        [attempt for repair in repairs for attempt in repair["attempts"]]
+    )
+    return {
+        "policy_id": REPAIR_POLICY_ID,
+        "policy_reminder": REPAIR_REMINDER,
+        "eligible_count": preflight["eligible_count"],
+        "repaired_count": sum(repair["repaired"] is True for repair in repairs),
+        "exhausted_count": sum(repair["exhausted"] is True for repair in repairs),
+        "added_judge_calls": sum(repair["attempt_count"] for repair in repairs),
+        "added_judge_usage": usage,
+        "projected_max_cost_usd": preflight["projected_max_cost_usd"],
+        "subject_models_rerun": False,
+    }
+
+
+async def repair_packet(
+    source_packet: Path,
+    output_root: Path,
+    child_run_id: str,
+    provider_factory: Callable[..., Any],
+    profile: str | None,
+    region: str | None,
+    budget_usd: float = MAX_REPAIR_BUDGET_USD,
+    dry_run: bool = False,
+) -> Path | dict[str, Any]:
+    """Verify, preflight, and selectively re-adjudicate into an immutable child."""
+    verified = verify_immutable_packet(source_packet)
+    preflight = _repair_preflight(verified, budget_usd)
+    safe_run_id_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+    if not child_run_id or any(char not in safe_run_id_chars for char in child_run_id):
+        raise ValueError("run ID may contain only letters, digits, '-' and '_'")
+    final = Path(output_root) / child_run_id
+    temporary = Path(output_root) / f".{child_run_id}.tmp"
+    if final.exists() or temporary.exists():
+        raise FileExistsError(f"immutable run already exists: {child_run_id}")
+    if dry_run:
+        return {**preflight, "dry_run": True, "provider_calls": 0}
+    if preflight["eligible_count"] == 0:
+        raise ValueError("source packet has no eligible contradiction verdicts")
+    provider = provider_factory("bedrock", profile=profile, region=region)
+    child_records: list[dict[str, Any]] = []
+    repaired_so_far = 0
+    for record in verified.records:
+        if _eligible_for_repair(record):
+            child_records.append(await _repair_record(record, provider))
+            repaired_so_far += 1
+            print(f"repair progress: {repaired_so_far}/{preflight['eligible_count']}")
+        else:
+            child_records.append(record)
+    repair_summary = _repair_summary(child_records, preflight)
+    provenance = {
+        "parent_run_id": verified.manifest["run_id"],
+        "source_manifest_sha256": verified.manifest_sha256,
+    }
+    protocol_extension = {
+        "kind": "post-run-verdict-repair",
+        "policy_id": REPAIR_POLICY_ID,
+        "policy_reminder_sha256": hashlib.sha256(REPAIR_REMINDER.encode()).hexdigest(),
+        "max_attempts": MAX_REPAIR_ATTEMPTS,
+        **provenance,
+    }
+    child = write_immutable_packet(
+        Path(output_root),
+        child_run_id,
+        verified.plan,
+        child_records,
+        verified.summary["floor"]["semantic_expected_label_passed"],
+        _timestamp(),
+        _code_revision(),
+        repair_summary=repair_summary,
+        provenance=provenance,
+        protocol_extension=protocol_extension,
+    )
+    verify_immutable_packet(child)
+    return child
 
 
 def export_publishable(packet: Path, public_root: Path) -> Path:
@@ -765,6 +1153,8 @@ def export_publishable(packet: Path, public_root: Path) -> Path:
             "run_id": run_id,
             "created_at": manifest["created_at"],
             "protocol": summary["protocol"],
+            "repair": summary.get("repair"),
+            "provenance": summary.get("provenance"),
             "source_manifest_sha256": sha256_file(packet / "manifest.json"),
             "aggregate_files": files,
             "contains_raw_evidence": False,
@@ -990,6 +1380,21 @@ def _parser() -> argparse.ArgumentParser:
     _add_common_arguments(commands.add_parser("floor-only"), 5)
     _add_common_arguments(commands.add_parser("smoke"), 1)
     _add_common_arguments(commands.add_parser("full"), 5)
+    repair = commands.add_parser("repair")
+    repair.add_argument("--source-packet", type=Path, required=True)
+    repair.add_argument(
+        "--output-root", type=Path, default=REPO_ROOT / "results" / "public-bedrock-v1"
+    )
+    repair.add_argument(
+        "--public-root",
+        type=Path,
+        default=REPO_ROOT / "docs" / "model-cards" / "public-bedrock-v1",
+    )
+    repair.add_argument("--run-id")
+    repair.add_argument("--budget-usd", type=float, default=MAX_REPAIR_BUDGET_USD)
+    repair.add_argument("--dry-run", action="store_true")
+    repair.add_argument("--profile", help="AWS profile used in memory only; never persisted")
+    repair.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
     return parser
 
 
@@ -998,6 +1403,41 @@ def run_cli(
     provider_factory: Callable[..., Any] = _default_provider_factory,
 ) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "repair":
+        run_id = args.run_id or (
+            "repair-"
+            + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            + "-"
+            + uuid.uuid4().hex[:8]
+        )
+        result = asyncio.run(
+            repair_packet(
+                args.source_packet,
+                args.output_root,
+                run_id,
+                provider_factory,
+                args.profile,
+                args.region,
+                budget_usd=args.budget_usd,
+                dry_run=args.dry_run,
+            )
+        )
+        if isinstance(result, dict):
+            print(f"eligible contradiction records: {result['eligible_count']}")
+            print(f"maximum repair judge calls: {result['max_judge_calls']}")
+            print(f"projected maximum repair cost: USD {result['projected_max_cost_usd']:.6f}")
+            print("repair dry-run: PASS (zero provider calls; no artifacts created)")
+            return 0
+        summary = json.loads((result / "summary.json").read_text())
+        print(f"repair child packet: {result}")
+        print(f"repaired: {summary['repair']['repaired_count']}")
+        print(f"exhausted: {summary['repair']['exhausted_count']}")
+        print(f"added judge calls: {summary['repair']['added_judge_calls']}")
+        print(f"publishable: {summary['publishable']}")
+        if summary["publishable"]:
+            public_export = export_publishable(result, args.public_root)
+            print(f"public aggregate export: {public_export}")
+        return 0
     plan = build_plan(args.command, args.models, args.k, args.budget_usd)
     _print_plan(plan)
     if args.command == "dry-run":

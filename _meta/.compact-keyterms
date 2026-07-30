@@ -1,0 +1,9 @@
+_meta/
+.claude/
+057a80a
+515f3c6
+92094eb
+docs/experiments/
+experiments/
+main
+tests/test_public_bedrock_v1.py

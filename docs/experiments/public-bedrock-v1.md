@@ -69,6 +69,56 @@ misses and never call the judge.
 Use a unique `--run-id` to name a coordinated run. If the final or temporary run directory already
 exists, the runner refuses to overwrite it. Do not delete or edit a packet and reuse its ID.
 
+## Targeted verdict repair
+
+`repair` is a post-run re-adjudication path for one narrowly defined failure: a subject record with
+`status=error`, `error_kind=strict_verdict_error/contradiction`, and a preserved nonblank output
+that still passes the redaction gate. It never reruns a subject model and never edits its parent
+packet.
+
+Always run the zero-provider preflight first:
+
+```bash
+UV_CACHE_DIR=/tmp/mfe-uv-cache AWS_PROFILE=definitely-not-used \
+  uv run --isolated --no-project --with boto3 --with httpx \
+  python experiments/public_bedrock_v1.py repair \
+  --source-packet results/public-bedrock-v1/<parent-run-id> \
+  --run-id <child-run-id> --dry-run
+```
+
+The repair preflight verifies every source checksum, the checksum receipt, manifest/summary/JSONL
+tie-outs, unique attempt identities, task hashes, and redaction before constructing a provider. It
+prints the exact eligible count, maximum judge calls, token bounds, and projected maximum cost.
+The hard repair ceiling is **USD 1.00**. A failed preflight or existing child ID causes zero calls.
+
+The coordinated live command removes only `--dry-run` and supplies the real profile:
+
+```bash
+UV_CACHE_DIR=/tmp/mfe-uv-cache AWS_PROFILE=<profile> \
+  uv run --isolated --no-project --with boto3 --with httpx \
+  python experiments/public_bedrock_v1.py repair \
+  --source-packet results/public-bedrock-v1/<parent-run-id> \
+  --run-id <child-run-id>
+```
+
+Every eligible record is independently rejudged at most twice under the original rubric plus this
+single fixed logical invariant: `reached=false` requires `divergence=worse`; `reached=true`
+requires `equivalent`, `better`, or `novel`. The reminder does not supply an expected answer or the
+rejected verdict. Strict parsing, types, allowed labels, and contradiction checks remain unchanged;
+there is no normalization or LLM repair of malformed responses.
+
+The immutable child preserves all ineligible records byte-for-data, along with every subject's
+original output, identity, timing, token usage, and cost. Eligible records retain their original
+judge usage in repair provenance and add every rejudge attempt to explicit adjudication totals.
+Each record and aggregate summary visibly reports attempt count, repaired/exhausted status, safe
+failure codes, added judge calls, and added usage. The child manifest records the parent run ID and
+source-manifest SHA-256. Reusing a child ID is refused before provider construction.
+
+Repair is scientifically disclosed, not treated as an originally clean run. Aggregate cards and
+the publication receipt name the parent, policy, eligible/repaired/exhausted counts, and added judge
+calls. Public export occurs only when the ordinary full-run floor, k, completion, count, redaction,
+and checksum gates all pass after repair. Exhausted or incomplete children remain nonpublishable.
+
 ## Cost preflight
 
 The runner uses a fixed conservative price table dated **2026-07-14**, expressed in USD per

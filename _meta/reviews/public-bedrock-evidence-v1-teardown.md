@@ -1,3 +1,9 @@
+---
+type: note
+status: active
+created: 2026-07-14
+---
+
 # Tear Down: public Bedrock evidence v1
 
 reviewed: 2026-07-14
