@@ -1,3 +1,9 @@
+---
+type: note
+status: active
+created: 2026-07-14
+---
+
 # Tear Down: public eval engine v0.2
 
 reviewed: 2026-07-14
