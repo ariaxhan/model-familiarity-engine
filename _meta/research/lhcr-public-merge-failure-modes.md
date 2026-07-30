@@ -2,8 +2,10 @@
 topic: lhcr-public-merge
 date: 2026-07-14
 source_heads: model-familiarity-engine@515f3c6, lhcr@d53f5e7, study@05b9cfc
+type: note
+status: active
+created: 2026-07-14
 ---
-
 # Failure-mode map
 
 ## Release blockers

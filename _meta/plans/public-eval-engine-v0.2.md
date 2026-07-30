@@ -1,3 +1,9 @@
+---
+type: note
+status: active
+created: 2026-07-14
+---
+
 # Public eval engine v0.2
 
 Goal: make `model-familiarity-engine` a self-contained public evaluation engine with a
