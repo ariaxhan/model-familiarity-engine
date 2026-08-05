@@ -77,6 +77,47 @@ SUBJECT_MODELS = [
     # Writer
     "us.writer.palmyra-x5-v1:0",
 ]
+
+# --- Together serverless panel -------------------------------------------------------
+# A SEPARATE study, not a migration of the Bedrock panel above. Together stocks newer
+# generations than Bedrock pins (DeepSeek V4 vs V3.2, GLM-5.2 vs 4.7, Kimi K3 vs K2.5),
+# so these are different subjects and produce a different protocol hash. Comparing a
+# card from this panel against a Bedrock card is a version confound, not a result.
+#
+# Model ids are Together's exact serverless API strings (docs.together.ai/docs/
+# serverless-models, read 2026-08-04). Together rotates its catalog faster than Bedrock,
+# so VALIDATE BEFORE EVERY RUN:
+#     model-familiarity panel-check --provider together
+# Anything absent from the live /v1/models list must be dropped from the panel and the
+# study re-registered, never silently substituted.
+TOGETHER_SUBJECT_MODELS = [
+    # DeepSeek
+    "deepseek-ai/DeepSeek-V4-Pro",
+    "deepseek-ai/DeepSeek-V4-Flash-0731",
+    # Moonshot
+    "moonshotai/Kimi-K3",
+    "moonshotai/Kimi-K2.7-Code",
+    "moonshotai/Kimi-K2.6",
+    # Z.AI / GLM
+    "zai-org/GLM-5.2",
+    # MiniMax
+    "MiniMaxAI/MiniMax-M3",
+    # Qwen (judge family, but distinct models; floor-test guards affinity)
+    "Qwen/Qwen3.7-Plus",
+    "Qwen/Qwen3.6-Plus",
+    "Qwen/Qwen3.5-9B",
+    "Qwen/Qwen2.5-7B-Instruct-Turbo",
+    # OpenAI (open weights)
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+]
+
+# Held OUT of TOGETHER_SUBJECT_MODELS on purpose: a judge cannot grade itself. Mirrors
+# the Bedrock panel's qwen3-235b judge. The floor gate still applies, so an unproven
+# judge aborts the run before any card is written.
+TOGETHER_JUDGE_MODEL = "Qwen/Qwen3.7-Max"
+
+
 async def run_pilot(
     subjects: list[str] | None = None,
     judge_model: str = DEFAULT_JUDGE_MODEL,

@@ -81,6 +81,59 @@ def health(json_output: bool) -> None:
         click.echo(text.rstrip())
 
 
+PANELS = {
+    "bedrock": ("SUBJECT_MODELS", DEFAULT_JUDGE_MODEL),
+    "together": ("TOGETHER_SUBJECT_MODELS", None),
+}
+
+
+@main.command("panel-check")
+@click.option(
+    "--provider",
+    "provider_key",
+    type=click.Choice(sorted(PANELS)),
+    required=True,
+    help="Which provider's panel to validate against its live catalog.",
+)
+def panel_check(provider_key: str) -> None:
+    """Verify every panel model still exists in the provider's live catalog.
+
+    Hosted catalogs rotate. A model that quietly disappears would otherwise surface as a
+    run of failed cells, or worse, tempt a silent substitution of a neighbouring version.
+    Different version, different subject: this command makes the drift explicit so the
+    study gets re-registered instead of contaminated.
+
+    Reads exactly one endpoint (/v1/models). No completion calls, no cost.
+    """
+    from model_familiarity import pilot
+
+    panel_attr, judge_model = PANELS[provider_key]
+    subjects = list(getattr(pilot, panel_attr))
+    judge_model = judge_model or getattr(pilot, "TOGETHER_JUDGE_MODEL", None)
+    wanted = subjects + ([judge_model] if judge_model else [])
+
+    provider = get_provider(provider_key)
+    available = set(asyncio.run(provider.list_models()))
+    if not available:
+        raise click.ClickException(
+            f"{provider_key}: live catalog came back empty. Either the API key env var is "
+            f"unset or the provider rejected the request. Cannot validate the panel."
+        )
+
+    missing = [m for m in wanted if m not in available]
+    for model in wanted:
+        role = "judge" if model == judge_model else "subject"
+        mark = "MISSING" if model in missing else "ok"
+        click.echo(f"  {mark:8} {role:8} {model}")
+
+    click.echo(f"\n{len(wanted) - len(missing)}/{len(wanted)} present in {provider_key}")
+    if missing:
+        raise click.ClickException(
+            f"{len(missing)} panel model(s) absent from the live catalog. Drop them and "
+            f"re-register the study. Do NOT substitute a different version."
+        )
+
+
 @main.group()
 def study() -> None:
     """Validate or plan a preregistered study without model API calls."""

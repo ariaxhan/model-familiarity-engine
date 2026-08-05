@@ -43,6 +43,25 @@ def get_provider(name: str, **kwargs):
             api_key=kwargs.get("api_key") or os.environ.get("ANTHROPIC_API_KEY", ""),
             name="anthropic",
         ),
+        # Together serverless. OpenAI-compatible, bearer auth
+        # (docs.together.ai/docs/openai-api-compatibility). Carries newer open-weights
+        # generations than Bedrock: use pilot.TOGETHER_SUBJECT_MODELS, and treat it as a
+        # separate study — the panel is part of the protocol hash.
+        # Key from env only — never passed on the CLI or written to disk.
+        "together": lambda: OpenAICompatProvider(
+            base_url=kwargs.get("base_url", "https://api.together.ai/v1"),
+            api_key=kwargs.get("api_key") or os.environ.get("TOGETHER_API_KEY", ""),
+            name="together",
+        ),
+        # Groq. OpenAI-compatible, bearer auth. Very narrow catalog (llama-3.x,
+        # gpt-oss-20b/120b) but roughly an order of magnitude faster per token, so it is
+        # a wall-clock lane for those few models, not a panel provider.
+        # Key from env only — never passed on the CLI or written to disk.
+        "groq": lambda: OpenAICompatProvider(
+            base_url=kwargs.get("base_url", "https://api.groq.com/openai/v1"),
+            api_key=kwargs.get("api_key") or os.environ.get("GROQ_API_KEY", ""),
+            name="groq",
+        ),
     }
     if name not in providers:
         raise ValueError(f"Unknown provider: {name}. Available: {list(providers.keys())}")

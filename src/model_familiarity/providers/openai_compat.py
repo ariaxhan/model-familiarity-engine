@@ -35,6 +35,13 @@ class OpenAICompatProvider(BaseProvider):
         self.api_key = api_key
         self.name = name
 
+    def _headers(self) -> dict[str, str]:
+        """Auth headers, or none for keyless local servers (ollama, LM Studio)."""
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
     async def complete(
         self,
         model: str,
@@ -57,9 +64,7 @@ class OpenAICompatProvider(BaseProvider):
         max_tokens: int = 1024,
         temperature: float = 0.0,
     ) -> LLMResponse:
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        headers = self._headers()
 
         payload = {
             "model": model,
@@ -98,9 +103,12 @@ class OpenAICompatProvider(BaseProvider):
         )
 
     async def list_models(self) -> list[str]:
+        # Hosted providers (Together, Groq, Anthropic) 401 on an unauthenticated
+        # /models. Without the header this silently returned [] for every one of them,
+        # which reads as "provider has no models" rather than "you forgot the key".
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"{self.base_url}/models")
+                resp = await client.get(f"{self.base_url}/models", headers=self._headers())
                 resp.raise_for_status()
                 data = resp.json()
                 return [m["id"] for m in data.get("data", data.get("models", []))]
@@ -110,7 +118,7 @@ class OpenAICompatProvider(BaseProvider):
     async def is_available(self) -> bool:
         try:
             async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.get(f"{self.base_url}/models")
+                resp = await client.get(f"{self.base_url}/models", headers=self._headers())
                 return resp.status_code == 200
         except Exception:
             return False
